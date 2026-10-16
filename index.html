@@ -315,22 +315,33 @@ function salvarCfg(){ var f=$('cf-faz').value.trim(), m=$('cf-map').value.trim()
   api('salvar_config',{chave:'Fazenda',valor:f},function(r1){ api('salvar_config',{chave:'Mapa_URL',valor:m},function(r2){
     if(!(r1.ok&&r2.ok)){alert('Não salvou.');return;} toast('Salvo.'); carregar(); }); }); }
 // Modo posicionar: escolhe o piquete e toca no mapa em cima do número dele
-var _posSel='';
+var _posSel='', _posNovo=null; // v1.2: o toque só marca; grava só ao clicar "Salvar posição"
 function posicionar(){
   if(!MAPA_IMG){alert('Coloque primeiro o link da imagem do mapa.');return;}
   if(!AREAS.length){alert('Cadastre os piquetes primeiro.');return;}
   if(!_posSel){ var semPos=AREAS.find(function(a){return a.x==null;}); _posSel=(semPos||AREAS[0]).id; }
+  var novo=_posNovo?'<div style="position:absolute;left:'+_posNovo.x+'%;top:'+_posNovo.y+'%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;background:#E65100;border:3px solid #fff;pointer-events:none;box-shadow:0 0 0 2px #E65100"></div>':'';
   var dots=AREAS.filter(function(a){return a.x!=null;}).map(function(a){ return '<div style="position:absolute;left:'+a.x+'%;top:'+a.y+'%;transform:translate(-50%,-50%);width:'+(a.id===_posSel?16:9)+'px;height:'+(a.id===_posSel?16:9)+'px;border-radius:50%;background:'+(a.id===_posSel?'#FFD54F':'#fff')+';border:2px solid #1f6b33;pointer-events:none"></div>'; }).join('');
   abrirMdl('<h3>Posicionar piquetes</h3><div class="sub">Escolha o piquete e toque no mapa em cima do número dele. Salva na hora e passa para o próximo.</div>'
-   +'<label>Piquete</label><select id="pos-sel" onchange="_posSel=this.value;posicionar()">'+AREAS.map(function(a){return '<option value="'+esc(a.id)+'"'+(a.id===_posSel?' selected':'')+'>'+esc(a.l)+(a.x==null?' (sem posição)':'')+'</option>';}).join('')+'</select>'
-   +'<div class="map" id="pos-map" style="margin-top:10px;cursor:crosshair" onclick="posClique(event)"><img src="'+MAPA_IMG+'" alt="">'+dots+'</div>'
-   +'<button class="btn" style="width:100%;margin:12px 0 0" onclick="fecharMdl()">Concluir</button>');
+   +'<label>Piquete</label><select id="pos-sel" onchange="_posSel=this.value;_posNovo=null;posicionar()">'+AREAS.map(function(a){return '<option value="'+esc(a.id)+'"'+(a.id===_posSel?' selected':'')+'>'+esc(a.l)+(a.x==null?' (sem posição)':'')+'</option>';}).join('')+'</select>'
+   +'<div class="map" id="pos-map" style="margin-top:10px;cursor:crosshair" onclick="posClique(event)"><img src="'+MAPA_IMG+'" alt="">'+dots+novo+'</div>'
+   +(_posNovo?'<div class="sub" style="margin-top:8px;color:#E65100;font-weight:700">Nova posição marcada (laranja). Ainda não foi salva.</div>'
+     +'<div class="two" style="margin-top:8px"><div><button class="btn" style="width:100%;margin:0" onclick="posSalvar(this)">Salvar posição</button></div><div><button class="btn o" style="width:100%;margin:0" onclick="_posNovo=null;posicionar()">Cancelar</button></div></div>'
+     :'<div class="sub" style="margin-top:8px">Amarelo = posição atual deste piquete. Toque no mapa para marcar outra.</div>')
+   +'<button class="btn o" style="width:100%;margin:10px 0 0" onclick="_posNovo=null;fecharMdl()">Sair sem mudar nada</button>');
 }
 function posClique(ev){
-  var m=$('pos-map').getBoundingClientRect(), x=Math.round((ev.clientX-m.left)/m.width*1000)/10, y=Math.round((ev.clientY-m.top)/m.height*1000)/10, id=_posSel;
-  var a=AREAS.find(function(q){return q.id===id;}); if(!a) return;
-  a.x=x; a.y=y; var i=AREAS.indexOf(a); _posSel=(AREAS[i+1]||AREAS[0]).id; posicionar();
-  api('salvar_piquete',{id:id,X:x,Y:y},function(r){ if(!r.ok){alert('Não salvou a posição de '+a.l+'.');return;} toast(a.l+' posicionado.'); });
+  var m=$('pos-map').getBoundingClientRect();
+  _posNovo={x:Math.round((ev.clientX-m.left)/m.width*1000)/10, y:Math.round((ev.clientY-m.top)/m.height*1000)/10};
+  posicionar();
+}
+function posSalvar(bt){
+  var id=_posSel, a=AREAS.find(function(q){return q.id===id;}), p=_posNovo; if(!a||!p) return;
+  if(!confirm('Gravar a nova posição de '+a.l+' na planilha?')) return;
+  bt.disabled=true;
+  api('salvar_piquete',{id:id,X:p.x,Y:p.y},function(r){
+    if(!r.ok){ bt.disabled=false; alert('Não salvou a posição de '+a.l+'.'); return; }
+    a.x=p.x; a.y=p.y; _posNovo=null; toast(a.l+' posicionado.'); posicionar(); });
 }
 
 // ── navegação / modal ──
