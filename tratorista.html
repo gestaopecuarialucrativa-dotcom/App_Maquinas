@@ -13,7 +13,7 @@ input{width:100%;padding:14px;border:2px solid #1f6b33;border-radius:14px;font:7
 .btn{display:block;width:calc(100% - 28px);margin:16px 14px;background:#1f6b33;color:#fff;border:none;border-radius:16px;padding:16px;font:800 16px Inter,Arial;cursor:pointer}
 .btn:disabled{opacity:.6}.msg{text-align:center;padding:30px 20px;font-size:15px;color:#555}
 </style></head><body>
-<div class="top"><small>GPL · FAZENDA ESTRELA</small><h1>Fechar serviço de trator</h1></div>
+<div class="top"><small>GPL · MÁQUINAS</small><h1>Fechar serviço de trator</h1></div>
 <div class="card" id="box"><div class="msg">Carregando…</div></div>
 <div id="acao"></div>
 <script>
@@ -28,24 +28,57 @@ function api(acao,q,data,cb){ var nm='_cb'+Date.now(), s=document.createElement(
   window[nm]=function(r){ok=true;delete window[nm];s.remove();cb(r||{});};
   s.onerror=function(){if(ok)return;delete window[nm];s.remove();cb({ok:false,erro:'Sem internet. Tente de novo quando tiver sinal.'});};
   s.src=API+'?acao='+acao+q+'&data='+encodeURIComponent(JSON.stringify(data||{}))+'&callback='+nm+'&t='+Date.now(); document.body.appendChild(s); }
+// v1.1 sem internet: guarda o serviço no celular quando abre com sinal; fecha offline e envia quando o sinal voltar
+function lsG(k){ try{ return JSON.parse(localStorage.getItem(k)||'null'); }catch(e){ return null; } }
+function lsS(k,v){ try{ if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+var K_SV='gplsv_'+TK, K_PD='gplpend_'+TK;
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(function(){}); }catch(e){} }
 function msg(t){ $('box').innerHTML='<div class="msg">'+t+'</div>'; $('acao').innerHTML=''; }
 if(!TK) msg('Link incompleto. Peça o link de novo ao consultor.');
-else api('ver_servico','&token='+encodeURIComponent(TK),{},function(r){
-  if(!r.ok){ msg(esc(r.erro||'Não consegui abrir o serviço.')); return; }
-  S=r.servico;
+else if(lsG(K_PD)) enviarPendente(true);
+else abrir();
+function abrir(){ api('ver_servico','&token='+encodeURIComponent(TK),{},function(r){
+  var semNet=!r.ok&&/internet|conex/i.test(r.erro||'');
+  if(!r.ok&&semNet&&lsG(K_SV)){ S=lsG(K_SV); mostrar(true); return; }
+  if(!r.ok){ msg(semNet?'Sem internet agora. Abra este link uma vez com sinal (pode ser na sede) e depois ele funciona no campo, mesmo sem internet.':esc(r.erro||'Não consegui abrir o serviço.')); return; }
+  S=r.servico; if(S.Status!=='fechado') lsS(K_SV,S); else lsS(K_SV,null); mostrar(false);
+}); }
+function mostrar(off){
   var linhas='<div class="row"><span>Pasto</span><b>'+esc(S.Area)+(S.Area_ha?' · '+f1(S.Area_ha)+' ha':'')+'</b></div><div class="row"><span>Serviço</span><b>'+esc(S.Servico)+'</b></div>'
    +'<div class="row"><span>Trator</span><b>'+esc(S.Trator)+'</b></div><div class="row"><span>Aberto em</span><b>'+dBR(S.Data)+'</b></div><div class="row"><span>Horímetro inicial</span><b>'+f1(S.Horimetro_Inicial)+'</b></div>';
   if(S.Status==='fechado'){ $('box').innerHTML=linhas+'<div class="row"><span>Horímetro final</span><b>'+f1(S.Horimetro_Final)+'</b></div><div class="calc">Serviço já fechado. Obrigado!</div>'; return; }
   $('box').innerHTML=linhas+'<label>Horímetro final</label><input id="hf" type="number" step="0.1" inputmode="decimal" oninput="calc()" placeholder="0,0"><div class="calc" id="calc"></div>';
-  $('acao').innerHTML='<button class="btn" id="bt" onclick="fechar()">Fechar serviço</button>';
-});
+  $('acao').innerHTML='<button class="btn" id="bt" onclick="fechar()">Fechar serviço</button>'
+    +(off?'<div style="margin:0 16px;background:#FFF3E0;color:#E65100;border-radius:12px;padding:10px;font-size:13px;font-weight:600">Sem internet. Pode fechar o serviço: fica guardado no celular e é enviado quando tiver sinal.</div>':'');
+}
 function calc(){ var h=n($('hf').value)-n(S.Horimetro_Inicial); $('calc').textContent=h>0?('= '+f1(h)+' h trabalhadas'):($('hf').value?'O final precisa ser maior que o inicial':''); }
 function fechar(){ var hf=n($('hf').value), hi=n(S.Horimetro_Inicial);
   if(!(hf>hi)){ alert('O horímetro final precisa ser maior que o inicial ('+f1(hi)+').'); return; }
   if(!confirm('Confirmar horímetro final '+f1(hf)+' ('+f1(hf-hi)+' h)?')) return;
   var b=$('bt'); b.disabled=true; b.textContent='Enviando…';
   api('fechar_servico','',{token:TK,hor_fim:hf},function(r){
+    if(!r.ok&&/internet|conex/i.test(r.erro||'')){ lsS(K_PD,{hor_fim:hf,horas:Math.round((hf-hi)*10)/10}); guardado(); return; }
     if(!r.ok){ b.disabled=false; b.textContent='Fechar serviço'; alert(r.erro||'Não consegui enviar.'); return; }
-    msg('<b style="color:#1f6b33;font-size:18px">Serviço fechado!</b><br><br>'+f1(r.horas)+' h registradas. Pode fechar esta página.'); });
+    lsS(K_SV,null);
+    msg('<b style="color:#1f6b33;font-size:18px">Serviço fechado!</b><br><br>'+f1(r.horas)+' h registradas.');
+    $('acao').innerHTML='<button class="btn" onclick="sair()">Fechar</button><div id="dica" style="text-align:center;font-size:13px;color:#777;margin:0 20px"></div>'; });
+}
+function guardado(){ var pd=lsG(K_PD)||{};
+  msg('<b style="color:#E65100;font-size:17px">Guardado no celular</b><br><br>'+f1(pd.horas)+' h · horímetro final '+f1(pd.hor_fim)+'.<br><br>Ainda <b>não foi enviado</b>. Quando tiver sinal, abra este link de novo que ele envia sozinho.');
+  $('acao').innerHTML='<button class="btn" onclick="enviarPendente(false)">Tentar enviar agora</button>'; }
+function enviarPendente(inicio){ var pd=lsG(K_PD); if(!pd){ abrir(); return; }
+  if(inicio) msg('Enviando o fechamento guardado…');
+  api('fechar_servico','',{token:TK,hor_fim:pd.hor_fim},function(r){
+    if(!r.ok&&/internet|conex/i.test(r.erro||'')){ guardado(); return; }
+    lsS(K_PD,null); lsS(K_SV,null);
+    if(!r.ok&&!/já foi fechado/i.test(r.erro||'')){ msg(esc(r.erro||'Não consegui enviar.')); return; }
+    msg('<b style="color:#1f6b33;font-size:18px">Enviado!</b><br><br>'+f1(pd.horas)+' h registradas.');
+    $('acao').innerHTML='<button class="btn" onclick="sair()">Fechar</button><div id="dica" style="text-align:center;font-size:13px;color:#777;margin:0 20px"></div>'; });
+}
+window.addEventListener('online',function(){ if(lsG(K_PD)) enviarPendente(false); });
+// v1.1: o navegador só deixa fechar sozinho a aba que ele mesmo abriu; se não fechar, volta pro WhatsApp ou avisa
+function sair(){
+  try{ window.close(); }catch(e){}
+  setTimeout(function(){ if(!window.closed){ if(history.length>1){ history.back(); } else { $('dica').textContent='Pode fechar esta aba no navegador (no X ou deslizando).'; } } },300);
 }
 </script></body></html>
